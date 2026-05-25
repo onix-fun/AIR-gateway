@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!build/
+!build/docker/
+!build/docker/**
+!nginx.conf
+!lua/
+!lua/**
