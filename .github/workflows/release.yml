@@ -31,8 +31,31 @@ jobs:
           docker run --rm \
             -v "$PWD/build/docker/site-lualib":/site-lualib \
             openresty/openresty:1.27.1.2-0-alpine-fat \
-            /bin/sh -c "opm get ledgetech/lua-resty-http && opm get SkyLothar/lua-resty-jwt && cp -R /usr/local/openresty/site/lualib/. /site-lualib/"
+            /bin/sh -c "opm get ledgetech/lua-resty-http && opm get fffonion/lua-resty-openssl && cp -R /usr/local/openresty/site/lualib/. /site-lualib/"
           touch build/docker/log-placeholder
+
+      - name: Test browser security and JWT
+        run: |
+          docker run --rm \
+            -v "$PWD":/gateway \
+            -w /gateway \
+            openresty/openresty:1.27.1.2-0-alpine-fat \
+            /bin/sh -c "opm get fffonion/lua-resty-openssl && resty tests/test_browser_security.lua && resty tests/test_jwt_auth.lua"
+
+      - name: Test real RS256 verification
+        run: |
+          tmp_dir="$(mktemp -d)"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$tmp_dir/private.pem"
+          openssl pkey -in "$tmp_dir/private.pem" -pubout -out "$tmp_dir/public.pem"
+          token="$(tests/generate-rs256-token.sh "$tmp_dir/private.pem")"
+          docker run --rm \
+            -v "$PWD":/gateway \
+            -v "$tmp_dir/public.pem":/tmp/public.pem:ro \
+            -e IDENTITY_JWT_PUBLIC_KEY_PATH=/tmp/public.pem \
+            -e TEST_RS256_TOKEN="$token" \
+            -w /gateway \
+            openresty/openresty:1.27.1.2-0-alpine-fat \
+            /bin/sh -c "opm get fffonion/lua-resty-openssl && resty tests/test_rs256_token.lua"
 
       - name: Resolve image metadata
         id: image

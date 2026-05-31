@@ -2,10 +2,16 @@ local cjson = require "cjson.safe"
 local http = require "resty.http"
 local parser = require "mqtt_parser"
 
-local function send_connack_error()
+local function send_connack_error(protocol_level)
     local sock = ngx.req.socket()
     if sock then
-        sock:send(string.char(0x20, 0x02, 0x00, 0x05))
+        if protocol_level == 5 then
+            -- MQTT 5.0: session_present=0, reason=0x87 (Not Authorized), properties_length=0
+            sock:send(string.char(0x20, 0x03, 0x00, 0x87, 0x00))
+        else
+            -- MQTT 3.1.1: reason=5 (Not Authorized)
+            sock:send(string.char(0x20, 0x02, 0x00, 0x05))
+        end
     end
     return ngx.exit(ngx.ERROR)
 end
@@ -96,12 +102,12 @@ end
 
 if not connect.username or connect.username == "" or not connect.password or connect.password == "" then
     ngx.log(ngx.WARN, "mqtt auth missing username/password")
-    return send_connack_error()
+    return send_connack_error(connect.protocol_level)
 end
 
 if not validate_token(connect.username, connect.password) then
     ngx.log(ngx.WARN, "mqtt auth rejected consumer ", connect.username)
-    return send_connack_error()
+    return send_connack_error(connect.protocol_level)
 end
 
 ngx.log(ngx.INFO, "mqtt auth accepted consumer ", connect.username)

@@ -1,4 +1,5 @@
-local jwt = require "resty.jwt"
+local security = require "browser_security"
+local token_verifier = require "rs256_token"
 
 local function unauthorized(message)
     ngx.status = ngx.HTTP_UNAUTHORIZED
@@ -7,15 +8,15 @@ local function unauthorized(message)
     return ngx.exit(ngx.HTTP_UNAUTHORIZED)
 end
 
-local function bearer_token()
+local function access_token()
     local auth = ngx.var.http_authorization
     if auth and auth ~= "" then
         local match = auth:match("^[Bb]earer%s+(.+)$")
         if match then return match end
     end
 
-    local arg_token = ngx.var.arg_access_token
-    if arg_token and arg_token ~= "" then return arg_token end
+    local cookie_token = security.cookie_value("access_token")
+    if cookie_token and cookie_token ~= "" then return cookie_token end
 
     return nil
 end
@@ -24,21 +25,23 @@ if ngx.req.get_method() == "OPTIONS" then
     return
 end
 
-local token = bearer_token()
-if not token then
-    return unauthorized("Missing bearer token")
+if not security.enforce_csrf() then
+    return
 end
 
-local secret = os.getenv("IDENTITY_JWT_SECRET") or "change-me"
-local issuer = os.getenv("IDENTITY_JWT_ISSUER") or "identity-service"
-local audience = os.getenv("IDENTITY_JWT_AUDIENCE") or "gateway"
+local token = access_token()
+if not token then
+    return unauthorized("Missing access token")
+end
 
-local jwt_obj = jwt:verify(secret, token)
-if not jwt_obj or not jwt_obj.verified then
+local issuer = os.getenv("IDENTITY_JWT_ISSUER") or "account-service"
+local audience = os.getenv("IDENTITY_JWT_AUDIENCE") or "sparrow"
+
+local payload = token_verifier.verify(token)
+if not payload then
     return unauthorized("Invalid bearer token")
 end
 
-local payload = jwt_obj.payload or {}
 if payload.iss ~= issuer then
     return unauthorized("Invalid token issuer")
 end
@@ -58,7 +61,8 @@ if not audience_ok then
 end
 
 local now = ngx.time()
-if payload.exp and tonumber(payload.exp) and tonumber(payload.exp) < now then
+local expires_at = tonumber(payload.exp)
+if not expires_at or expires_at <= now then
     return unauthorized("Expired bearer token")
 end
 
@@ -67,3 +71,4 @@ if not payload.sub or payload.sub == "" then
 end
 
 ngx.var.auth_client_id = payload.sub
+ngx.var.auth_expires_at = tostring(expires_at)

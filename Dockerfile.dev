@@ -1,7 +1,7 @@
 FROM openresty/openresty:1.27.1.2-0-alpine-fat
 
 RUN opm get ledgetech/lua-resty-http \
-    && opm get SkyLothar/lua-resty-jwt
+    && opm get fffonion/lua-resty-openssl
 
 RUN mkdir -p /var/log/sparrow/gateway
 
